@@ -38,7 +38,7 @@ public abstract class ConnectionConfiguration implements Serializable {
         this.connectionName = connectionName;
         this.excludedFiles = ".crt;.iml";
         this.preserveTime = false;
-        this.simultaneousJobs = 2;
+        this.simultaneousJobs = 1;
     }
 
     public String getConnectionName() {

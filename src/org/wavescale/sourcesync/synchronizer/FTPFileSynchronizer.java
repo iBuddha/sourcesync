@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.ftp.FTPReply;
+import org.apache.commons.net.io.Util;
 import org.jetbrains.annotations.NotNull;
 import org.wavescale.sourcesync.api.FileSynchronizer;
 import org.wavescale.sourcesync.config.FTPConfiguration;
@@ -29,7 +30,6 @@ import java.nio.file.Paths;
  * *****************************************************************************
  */
 public class FTPFileSynchronizer extends FileSynchronizer {
-
     private final FTPClient ftp;
 
     public FTPFileSynchronizer(@NotNull FTPConfiguration connectionInfo, @NotNull Project project, @NotNull ProgressIndicator indicator) {
@@ -64,6 +64,7 @@ public class FTPFileSynchronizer extends FileSynchronizer {
     public void disconnect() {
         if (this.ftp != null) {
             try {
+                ftp.completePendingCommand();
                 ftp.disconnect();
                 this.setConnected(false);
             } catch (IOException e) {
@@ -78,8 +79,12 @@ public class FTPFileSynchronizer extends FileSynchronizer {
         boolean preserveTimestamp = true;
         Path sourcePathLocation = Paths.get(sourceLocation);
         String sourceFileName = sourcePathLocation.getFileName().toString();
-        Path remotePath = Paths.get(this.getConnectionInfo().getRootPath()).resolve(uploadLocation);
-
+        String rootPath = this.getConnectionInfo().getRootPath();
+        if (rootPath == null || rootPath.isEmpty()) {
+            rootPath = "/";
+            EventDataLogger.logWarning("root path of FTP is not specified, use '/'.", getProject());
+        }
+        Path remotePath = Paths.get(rootPath).resolve(uploadLocation);
         // first try to create the path where this must be uploaded
         try {
             this.ftp.changeWorkingDirectory(remotePath.getRoot().toString());
@@ -106,29 +111,35 @@ public class FTPFileSynchronizer extends FileSynchronizer {
 
         // upload
         try {
+            EventDataLogger.logInfo("Uploading " + sourceFileName, getProject());
             this.ftp.setFileType(FTP.BINARY_FILE_TYPE);
-            FileInputStream in = new FileInputStream(sourceLocation);
-            OutputStream outputStream = this.ftp.storeFileStream(sourceFileName);
+            FileInputStream input = new FileInputStream(sourceLocation);
+            OutputStream output = this.ftp.storeFileStream(sourceFileName);
             this.getIndicator().setIndeterminate(false);
             this.getIndicator().setText("Uploading...[" + sourceFileName + "]");
-            byte[] buffer = new byte[1024];
-            int len;
-            double totalSize = sourcePathLocation.toFile().length() + 0.0;
-            long totalUploaded = 0;
-            while (true) {
-                len = in.read(buffer, 0, buffer.length);
-                if (len <= 0) {
-                    break;
-                }
-                outputStream.write(buffer, 0, len);
-                totalUploaded += len;
-                this.getIndicator().setFraction(totalUploaded / totalSize);
-            }
-            if (preserveTimestamp) {
-                // TODO - implement preserve timestamp mechanism
-            }
-            in.close();
-            outputStream.close();
+//            byte[] buffer = new byte[1024];
+//            int len;
+//            double totalSize = sourcePathLocation.toFile().length() + 0.0;
+//            long totalUploaded = 0;
+//            while (true) {
+//                len = in.read(buffer, 0, buffer.length);
+//                if (len <= 0) {
+//                    break;
+//                }
+//                outputStream.write(buffer, 0, len);
+//                totalUploaded += len;
+//                this.getIndicator().setFraction(totalUploaded / totalSize);
+//            }
+//            if (preserveTimestamp) {
+//                // TODO - implement preserve timestamp mechanism
+//            }
+            Util.copyStream(input, output);
+            input.close();
+            output.close();
+            this.getIndicator().setText("Uploaded [" + sourceFileName + "]");
+            this.getIndicator().setFraction(100.0);
+            ftp.completePendingCommand();
+            EventDataLogger.logInfo("Uploaded " + sourceFileName, getProject());
         } catch (FileNotFoundException e) {
             EventDataLogger.logWarning(e.toString(), getProject());
         } catch (IOException e) {
